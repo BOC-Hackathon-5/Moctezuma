@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from aiogram.dispatcher import FSMContext
 from requests import SubsClient, PaymentClient
 import asyncio
+import wallet
 
 
 # Создаем объект бота
@@ -26,6 +27,7 @@ BALANCE_DIGITAL = 428.47
 BALANCE_TOKEN = 4
 main_account_id = "351012345674"
 
+account = ""
 
 class StateMember(StatesGroup):
     not_registered = State()
@@ -37,10 +39,10 @@ class State_Manager(StatesGroup):
     get_amount = State()
     confirm = State()
 
-class State_Manager_digit(StatesGroup):
-    get_addres = State()
-    get_amount = State()
-    confirm = State()
+class Transfer_Manager(StatesGroup):
+    get_addres2 = State()
+    get_amount2 = State()
+    confirm2 = State()
 
 def generate_past_datetime_today():
     now = datetime.now()
@@ -60,16 +62,38 @@ def gen_hash() -> str:
     )
 
 @dp.message_handler(commands=["start"])
-async def transactions(message: types.Message, state: FSMContext):
+async def start_bot(message: types.Message, state: FSMContext):
     await b.send_message(
         message.chat.id,
         "<b>Welcome to Moctezuma!</b>",
-        reply_markup=ReplyKeyboardMarkup(resize_keyboard=True)
-        .add(KeyboardButton('👤 Profile'))
-
+        reply_markup=InlineKeyboardMarkup()
+        .add(InlineKeyboardButton('Create D-EUR wallet', callback_data='create_wallet'),)
     )
+
+
+@dp.callback_query_handler(lambda x: x.data.startswith("create_wallet"))
+async def registration(callback: CallbackQuery, state: FSMContext):
+    global account
+    account = wallet.create_new_account(wallet.digital_eur_mint_account_pub_key)
+    balance = round(float(account.get_balance), 3)
+
+    text = f"""
+    <b>💠 Congratulations!</b> You have created a D-EUR wallet on the blockchain.
+    
+    <i>• Public key:</i> <code>{account.get_pub_key}</code>
+    <i>• Account key:</i> <code>{account.get_account}</code>
+    
+    <i>💳  Balance:</i> <b><code>{balance}</code></b> €
+    
+    """
+    await b.edit_message_text(
+        text,
+        callback.message.chat.id,
+        callback.message.message_id,
+    )
+
     await b.send_message(
-        message.chat.id,
+        callback.message.chat.id,
         'Register with Bank of Cyprus',
         reply_markup = InlineKeyboardMarkup().add(
         InlineKeyboardButton(text="Register by BoC", url=await SubsClient().create_subscription())
@@ -77,8 +101,11 @@ async def transactions(message: types.Message, state: FSMContext):
         )
 
     await asyncio.sleep(20)
-    await b.send_message(message.chat.id, '<b>Thank you for registration!</b>')
-    await profile(message)
+    await b.send_message(callback.message.chat.id, '<b>Thank you for registration!</b>',
+                         reply_markup=ReplyKeyboardMarkup(resize_keyboard=True)
+                         .add(KeyboardButton('👤 Profile'))
+                         )
+    await profile(callback.message)
 
 
 @dp.callback_query_handler(lambda x: x.data and x.data.startswith("history"))
@@ -97,7 +124,7 @@ async def transactions(callback: CallbackQuery):
 async def profile(message: types.Message):
     """API Solana"""
     url = "solana"
-    text = f"<b>• BoC Balance:</b>  <code>{BALANCE_EURO}</code>€\n<b>• Digit-EUR:</b>•  <code>{BALANCE_DIGITAL}</code>€\n<b>• Assets:</b>   <code>{BALANCE_TOKEN}</code>"
+    text = f"<b>• BoC Balance:</b>  <code>{BALANCE_EURO}</code>€\n<b>• Digit-EUR:</b>  <code>{account.get_balance}</code>€\n<b>• Assets:</b>   <code>{BALANCE_TOKEN}</code>"
     await b.send_message(
         message.chat.id,
         f"Profile: <i>{message.from_user.first_name}</i>\nRegistrated: <code>20.10.2024</code>\nCurrency: <b>EUR</b>\n\n{text}",
@@ -146,7 +173,7 @@ async def get_amount(message: types.Message, state: FSMContext):
         await profile(message)
         await state.finish()
 
-@dp.message_handler(state="*")
+@dp.message_handler()
 async def confirm_transfer(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         await message.answer(
@@ -158,39 +185,40 @@ async def confirm_transfer(message: types.Message, state: FSMContext):
 
 ############################ DIGITAL PAYMENTS ############################
 @dp.callback_query_handler(lambda x: x.data and x.data.startswith("tran_dig"))
-async def transfer_eur_digit(callback: CallbackQuery):
-    await callback.message.answer(f"Send an <b>account ID</b> of receiver")
-    await State_Manager_digit.get_addres.set()
+async def transfer_eur_digit(callback: CallbackQuery, state: FSMContext):
+    await state.finish()
+    await callback.message.answer(f"Send an <b>Public key</b> of receiver")
+    await Transfer_Manager.get_addres2.set()
 
 
-@dp.message_handler(state=State_Manager_digit.get_addres)
+@dp.message_handler(state=Transfer_Manager.get_addres2)
 async def get_address_digit(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data["address"] = message.text
-    await message.answer("Send an <b>amount in EUR</b>")
-    await State_Manager_digit.get_amount.set()
+    await message.answer("Send an <b>amount in D-EUR</b>")
+    await Transfer_Manager.get_amount2.set()
 
 
 
-
-@dp.message_handler(state=State_Manager_digit.get_amount)
+@dp.message_handler(state=Transfer_Manager.get_amount2)
 async def get_amount_digit(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         data["amount"] = message.text
         await message.answer(
-            f'❔ Are you sure that you want to send <b>{data["amount"]}</b> EUR to BoC user, with <b>account ID</b>: <code>{data["address"]}</code>?',
+            f'❔ Are you sure that you want to send <b>{data["amount"]}</b> D-EUR to user with Public Key <code>{data["address"]}</code>?',
             reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add(KeyboardButton('Yes, confirm payment')).add(
                 KeyboardButton('No, cancel'))
         )
-        await State_Manager_digit.confirm.set()
+        await Transfer_Manager.confirm2.set()
 
 
-@dp.message_handler(state=State_Manager_digit.confirm)
+@dp.message_handler(state=Transfer_Manager.confirm2)
 async def confirm_transfer_digit(message: types.Message, state: FSMContext):
     async with state.proxy() as data:
         if message.text == "Yes, confirm payment":
             await message.answer(
-                f'✔️ <b>{data["amount"]}</b> has successfully sent to account ID <code>{data["address"]}</code>\n\nTrans. hash: <code>{gen_hash()}\n\n</code><i>You can view a transaction details in the transaction history</i>'
+                f'✔️ <b>{data["amount"]}</b> has successfully sent to account with Public Key <code>{data["address"]}</code>\n\n<b>- Trans. hash:</b> <code>{gen_hash()}\n\n_______________________________________\n</code><i>You can view a transaction details in the transaction history</i>',
+                reply_markup=ReplyKeyboardMarkup(resize_keyboard=True).add(KeyboardButton('👤 Profile'))
             )
         else:
             await message.answer("Canceled")

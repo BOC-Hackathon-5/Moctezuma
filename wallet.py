@@ -96,7 +96,7 @@ class Account:
         if private_key is not None:
             self.private_key = private_key
         self.mint_account_pub_key = mint_account_pub_key
-        self.account = self.solana_client.get_token_accounts_by_owner(pub_key, TokenAccountOpts(mint=mint_account_pub_key)).value[0].pubkey
+        self.account = self.solana_client.get_token_accounts_by_owner(self.pub_key, TokenAccountOpts(mint=self.mint_account_pub_key)).value[0].pubkey
 
     @property
     def get_balance(self):
@@ -166,17 +166,24 @@ def create_new_account(mint_account_pub_key: Pubkey)->Account:
     with open("wallet.csv", "a") as f:
         f.write(f"{wallet.pubkey()} {private_key}\n")
 
-    return Account(wallet.pubkey(), private_key, mint_account_pub_key)
+    return Account(Pubkey.from_string("H4vETeFN6jggp7DeXH6YjoNvQ1NCL4penqv6W9c7MDDE"), "6tyPbY7LA3Rt7DMJ1zyC1kfMpUpu8VVFm5ENHqjd6A7btCvPig1bGH9W88JUq9pVeCDmxHAkwJVivcvZ7odUJ6Q", mint_account_pub_key)
 
 def main():
-    # cba = Account(Pubkey.from_string("H4vETeFN6jggp7DeXH6YjoNvQ1NCL4penqv6W9c7MDDE"), "6tyPbY7LA3Rt7DMJ1zyC1kfMpUpu8VVFm5ENHqjd6A7btCvPig1bGH9W88JUq9pVeCDmxHAkwJVivcvZ7odUJ6Q", digital_eur_mint_account_pub_key)
+    # cba =
     # print(cba.get_balance)
     # print(cba.send_token(Pubkey.from_string("GY26NdnY6MEzJC4KA4dpCndAHdNLvjrF6BmoHEYk1XF3"), 666))
     # print(cba.get_balance)
+
+    euc_acc = Account(Pubkey.from_string("92Cm3bWWtfWvmuRRdEnzyWAf2qBaGN2smfF5op3jo9VD"),
+                      "drcH1XUYtQXRW4f9oUaFEyLNphf8stM6rQdXjNdGtP5zFHUJShRNs8cyXr3CgnRcyDp9rEzfdSz9wGpvvTVc5Vu",
+                      digital_eur_mint_account_pub_key)
+
+    euc_acc.send_token(Pubkey.from_string("6JeWeepE93Backe6kCuJwKb4zmcPmKXfHVfFMikfpg8R"), 100)
+
+    acc = create_new_account(digital_eur_mint_account_pub_key)
+    print(acc)
 
     daa = Account(Pubkey.from_string("FnWbZSeL7HUSFXH8g1hKSoKD9aoT5oBStTtiDrbLQoTK"), None, digital_eur_mint_account_pub_key)
     print(daa.get_balance)
     for tr in daa.get_transactions:
         print(tr)
-
-main()
