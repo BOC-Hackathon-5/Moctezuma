@@ -7,6 +7,7 @@ from solders. rpc. responses import GetTransactionResp
 from solders.keypair import Keypair
 from spl.token.instructions import transfer_checked, TransferCheckedParams
 import solana.transaction
+import solana.exceptions
 import base58
 
 digital_eur_mint_account_pub_key = Pubkey.from_string("HUfkqRBzq8cz3RdV98HUysK6GvEzNX37LPaEreNGpump")
@@ -20,37 +21,69 @@ class Transaction:
             self,
             signature: str,
             timestamp: datetime,
-            action: str,
-            sender: str,
-            receiver: str,
+            sender: Pubkey,
+            receiver: Pubkey,
             amount: float,
             token: str,
     ):
         self.signature = signature
         self.timestamp = timestamp
-        self.action = action
         self.sender = sender
         self.receiver = receiver
         self.amount = amount
         self.token = token
 
     def __str__(self):
-        return f"{self.signature} {self.timestamp} {self.action} {self.sender} {self.receiver} {self.amount} {self.token}"
+        return f"{self.signature} {self.timestamp} {self.sender} {self.receiver} {self.amount} {self.token}"
 
-def parse_transaction(signature: str, transaction_dto: GetTransactionResp) -> Transaction:
-    try:
-        amount = transaction_dto.value.transaction.meta.post_token_balances[0].ui_token_amount.ui_amount
-    except IndexError:
+def parse_transaction(signature: str, transaction_dto: GetTransactionResp, token: str) -> Transaction:
+    if transaction_dto.value.transaction.meta.err is not None:
         return None
+
+    sender_post_amount = 0
+    sender_pre_amount = 0
+    receiver_post_amount = 0
+    receiver_pre_amount = 0
+
+    try:
+        sender_post_amount = transaction_dto.value.transaction.meta.post_token_balances[0].ui_token_amount.ui_amount
+        sender = transaction_dto.value.transaction.meta.post_token_balances[0].owner
+        if sender_post_amount is None:
+            sender_post_amount = 0
+    except IndexError:
+        pass
+
+    try:
+        receiver_post_amount = transaction_dto.value.transaction.meta.post_token_balances[1].ui_token_amount.ui_amount
+        receiver = transaction_dto.value.transaction.meta.post_token_balances[1].owner
+        if receiver_post_amount is None:
+            receiver_post_amount = 0
+    except IndexError:
+        pass
+
+    try:
+        sender_pre_amount = transaction_dto.value.transaction.meta.pre_token_balances[0].ui_token_amount.ui_amount
+        sender = transaction_dto.value.transaction.meta.post_token_balances[0].owner
+        if sender_pre_amount is None:
+            sender_pre_amount = 0
+    except IndexError:
+        pass
+
+    try:
+        receiver_pre_amount = transaction_dto.value.transaction.meta.pre_token_balances[1].ui_token_amount.ui_amount
+        receiver = transaction_dto.value.transaction.meta.post_token_balances[1].owner
+        if receiver_pre_amount is None:
+            receiver_pre_amount = 0
+    except IndexError:
+        pass
 
     return Transaction(
         signature=signature,
         timestamp=datetime.fromtimestamp(transaction_dto.value.block_time),
-        action="",
-        sender="",
-        receiver="",
-        amount=amount,
-        token="",
+        sender=sender,
+        receiver=receiver,
+        amount=sender_post_amount-receiver_pre_amount,
+        token=token,
     )
 
 class Account:
@@ -84,10 +117,22 @@ class Account:
     def get_transactions(self)->list[Transaction]:
         transactions = []
 
-        signatures = self.solana_client.get_signatures_for_address(self.pub_key).value
+        try:
+            signatures = self.solana_client.get_signatures_for_address(self.account).value
+        except solana.exceptions.SolanaRpcException:
+            return transactions
+
         for signature in signatures:
             transaction_dto = self.solana_quicknode_client.get_transaction(signature.signature, "jsonParsed", max_supported_transaction_version=0)
-            parsed_transaction = parse_transaction(str(signature.signature), transaction_dto)
+
+            if self.mint_account_pub_key == digital_eur_mint_account_pub_key:
+                token = "DEUR"
+            elif self.mint_account_pub_key == digital_asset_mint_account_pub_key:
+                token = "DA"
+            else:
+                token = ""
+
+            parsed_transaction = parse_transaction(str(signature.signature), transaction_dto, token)
             if parsed_transaction is not None:
                 transactions.append(parsed_transaction)
 
